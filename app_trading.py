@@ -4,6 +4,15 @@ import numpy as np
 from PIL import Image
 from datetime import datetime, timedelta
 
+# Configuración de hora local (Colombia/Panamá GMT-5)
+def obtener_hora_local():
+    # El servidor suele estar en UTC (GMT+0), restamos 5 horas
+    return datetime.now() - timedelta(hours=5)
+
+# Ejemplo de cómo usarlo en tu etiqueta de "VENCE":
+hora_actual = obtener_hora_local()
+hora_vencimiento = hora_actual + timedelta(minutes=15) # O el tiempo que definas
+
 # 1. CONFIGURACIÓN DE SEGURIDAD (CAMBIA TU PIN AQUÍ)
 PIN_CORRECTO = "1234" 
 
