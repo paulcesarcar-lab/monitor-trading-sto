@@ -11,7 +11,7 @@ def obtener_hora_local():
     return datetime.now(zona_horaria)
 
 # 2. CONFIGURACIÓN DE PÁGINA
-st.set_page_config(page_title="Monitor STO/USDT Pro", layout="centered")
+st.set_page_config(page_title="Monitor STO/USDT Tactical Pro", layout="wide")
 
 # 3. SEGURIDAD: ACCESO POR PIN
 if "autenticado" not in st.session_state:
@@ -25,65 +25,77 @@ if not st.session_state["autenticado"]:
             st.session_state["autenticado"] = True
             st.rerun()
         else:
-            st.error("PIN incorrecto. Acceso denegado.")
+            st.error("PIN incorrecto.")
     st.stop()
 
-# 4. INTERFAZ DEL ANALIZADOR
-st.title("📊 Analizador Táctico STO/USDT Pro")
-st.write("Sube tu captura de pantalla de Binance para procesar niveles y tendencia.")
-
-archivo = st.file_uploader("Seleccionar imagen...", type=["jpg", "png", "jpeg"])
+# 4. INTERFAZ
+st.title("📊 Analizador Táctico STO/USDT")
+archivo = st.file_uploader("Sube captura de Binance", type=["jpg", "png", "jpeg"])
 
 if archivo is not None:
-    # Procesar imagen con OpenCV
     img = Image.open(archivo)
     img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
     gris = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    
-    # Detección de bordes (Canny)
     bordes = cv2.Canny(gris, 50, 150, apertureSize=3)
     
-    # Transformada de Hough para detectar soportes/resistencias
+    # Detección de líneas (Soportes/Resistencias)
     lineas = cv2.HoughLinesP(bordes, 1, np.pi/180, 100, minLineLength=100, maxLineGap=10)
-    
-    # Determinamos el punto medio para separar soportes y resistencias
     height, width, _ = img_cv.shape
     punto_medio = height / 2
     
+    niveles_resistencia = 0
     if lineas is not None:
         for l in lineas:
             x1, y1, x2, y2 = l[0]
-            # Dibujamos solo líneas horizontales (posibles soportes/resistencias)
             if abs(y1 - y2) < 5:
-                # Lógica de color: Resistencias (Arriba, y1 < punto_medio) son Rojas, Soportes (Abajo) son Verdes
-                color = (0, 0, 255) if y1 < punto_medio else (0, 255, 0) # BGR
+                # Rojo para Resistencia (arriba), Verde para Soporte (abajo)
+                es_resistencia = y1 < punto_medio
+                color = (0, 0, 255) if es_resistencia else (0, 255, 0)
+                if es_resistencia: niveles_resistencia += 1
                 cv2.line(img_cv, (x1, y1), (x2, y2), color, 2)
 
-    # DETECCIÓN DE TENDENCIA (Lógica basada en altura de los últimos puntos)
-    # Analizamos los últimos 50 puntos de bordes para ver si suben o bajan
-    y_coordenadas = np.argwhere(bordes > 0)[:, 0] # Obtenemos coordenadas Y de los bordes
-    if len(y_coordenadas) > 100:
-        primeros_puntos = np.mean(y_coordenadas[:50]) # Promedio de los primeros puntos (izquierda del gráfico)
-        ultimos_puntos = np.mean(y_coordenadas[-50:]) # Promedio de los últimos puntos (derecha)
-        
-        # En imagen, Y menor es más arriba. Si los últimos puntos están "más arriba", es alcista.
-        tendencia = "🚀 ALCISTA" if ultimos_puntos < primeros_puntos else "📉 BAJISTA"
-    else:
-        tendencia = "❓ INDETERMINADA"
-
-    # 5. CÁLCULO DE TIEMPO (VENCE)
-    hora_actual = obtener_hora_local()
-    vencimiento = (hora_actual + timedelta(minutes=15)).strftime('%H:%M')
-
-    # 6. MOSTRAR RESULTADOS
-    col1, col2 = st.columns(2)
-    with col1:
-        st.image(img_cv, channels="BGR", caption="Análisis Visual de Niveles")
+    # 5. CEREBRO DE TENDENCIA Y ESTADO
+    y_coords = np.argwhere(bordes > 0)[:, 0]
+    tendencia_msg = "INDETERMINADA"
+    estado_msg = "ESTABLE"
     
-    with col2:
-        st.success("✅ ANÁLISIS COMPLETADO")
-        st.metric(label="⏱️ PRÓXIMO VENCE (GMT-5)", value=vencimiento)
-        st.metric(label="📊 TENDENCIA DETECTADA", value=tendencia)
-        st.info("Recomendación: Validar con volumen y fuerza de ruptura.")
+    if len(y_coords) > 100:
+        # Dividimos el gráfico en inicio (izquierda) y fin (derecha) para ver la pendiente
+        mitad_w = bordes.shape[1] // 2
+        parte_izq = np.argwhere(bordes[:, :mitad_w] > 0)[:, 0]
+        parte_der = np.argwhere(bordes[:, mitad_w:] > 0)[:, 0]
+        
+        izq_avg = np.mean(parte_izq) if len(parte_izq) > 0 else punto_medio
+        der_avg = np.mean(parte_der) if len(parte_der) > 0 else punto_medio
+        
+        # En imagen, menor Y es más arriba
+        es_alcista = der_avg < izq_avg
+        tendencia_msg = "ALCISTA 🚀" if es_alcista else "BAJISTA 📉"
+        
+        # Agotamiento: si es alcista pero hay muchas líneas rojas (niveles_resistencia)
+        if es_alcista and niveles_resistencia > 5:
+            estado_msg = "AGOTÁNDOSE / LATERALIZADO ⚠️"
+        else:
+            estado_msg = "CON IMPULSO ⚡"
 
-st.sidebar.write(f"Conectado: {obtener_hora_local().strftime('%d/%m/%Y %H:%M:%S')}")
+    # 6. SALIDA DE DATOS (MÁXIMA CLARIDAD)
+    vencimiento = (obtener_hora_local() + timedelta(minutes=15)).strftime('%H:%M')
+    
+    st.markdown(f"### ⏱️ VENCE: {vencimiento} (Hora Local)")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("TENDENCIA", tendencia_msg)
+    with c2:
+        st.metric("ESTADO", estado_msg)
+
+    st.markdown("---")
+    st.image(img_cv, channels="BGR", use_container_width=True)
+
+    # 7. ANÁLISIS ESCRITO AUTOMÁTICO
+    st.info(f"**Análisis Técnico:** El activo presenta una tendencia **{tendencia_msg}**. "
+            f"Se observa un estado **{estado_msg}**. "
+            "Las líneas rojas marcan techos de venta y las verdes suelos de compra. "
+            "Si ves muchas líneas rojas cerca del precio actual, el movimiento alcista está perdiendo fuerza.")
+
+st.sidebar.write(f"Sincronizado: {obtener_hora_local().strftime('%H:%M:%S')}")
