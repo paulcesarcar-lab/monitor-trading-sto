@@ -29,7 +29,7 @@ if not st.session_state["autenticado"]:
     st.stop()
 
 # 4. INTERFAZ
-st.title("📊 Analizador Táctico STO/USDT")
+st.title("📊 Analizador Táctico Trading")
 archivo = st.file_uploader("Sube captura de Trading", type=["jpg", "png", "jpeg"])
 
 if archivo is not None:
