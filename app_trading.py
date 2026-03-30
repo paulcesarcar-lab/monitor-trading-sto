@@ -11,7 +11,7 @@ def obtener_hora_local():
     return datetime.now(zona_horaria)
 
 # 2. CONFIGURACIÓN DE PÁGINA
-st.set_page_config(page_title="Monitor STO/USDT Tactical Pro", layout="wide")
+st.set_page_config(page_title="Monitor Trading Tactical Pro", layout="wide")
 
 # 3. SEGURIDAD: ACCESO POR PIN
 if "autenticado" not in st.session_state:
@@ -30,7 +30,7 @@ if not st.session_state["autenticado"]:
 
 # 4. INTERFAZ
 st.title("📊 Analizador Táctico STO/USDT")
-archivo = st.file_uploader("Sube captura de Binance", type=["jpg", "png", "jpeg"])
+archivo = st.file_uploader("Sube captura de Trading", type=["jpg", "png", "jpeg"])
 
 if archivo is not None:
     img = Image.open(archivo)
