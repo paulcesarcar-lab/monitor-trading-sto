@@ -3,86 +3,87 @@ import cv2
 import numpy as np
 from PIL import Image
 from datetime import datetime, timedelta
+import pytz
 
-# Configuración de hora local (Colombia/Panamá GMT-5)
+# 1. CONFIGURACIÓN DE HORA LOCAL (GMT-5)
 def obtener_hora_local():
-    # El servidor suele estar en UTC (GMT+0), restamos 5 horas
-    return datetime.now() - timedelta(hours=5)
+    zona_horaria = pytz.timezone('America/Bogota')
+    return datetime.now(zona_horaria)
 
-# Ejemplo de cómo usarlo en tu etiqueta de "VENCE":
-hora_actual = obtener_hora_local()
-hora_vencimiento = hora_actual + timedelta(minutes=15) # O el tiempo que definas
+# 2. CONFIGURACIÓN DE PÁGINA
+st.set_page_config(page_title="Monitor STO/USDT Pro", layout="centered")
 
-# 1. CONFIGURACIÓN DE SEGURIDAD (CAMBIA TU PIN AQUÍ)
-PIN_CORRECTO = "1234" 
-
-st.set_page_config(page_title="Monitor Seguro STO", layout="centered")
-
-# --- BLOQUE DE AUTENTICACIÓN ---
+# 3. SEGURIDAD: ACCESO POR PIN
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
 if not st.session_state["autenticado"]:
     st.title("🔐 Acceso Restringido")
-    pin_ingresado = st.text_input("Introduce tu PIN de Ingeniero:", type="password")
-    if st.button("Desbloquear Analizador"):
-        if pin_ingresado == PIN_CORRECTO:
+    pin = st.text_input("Introduce el PIN de Seguridad:", type="password")
+    if st.button("Ingresar"):
+        if pin == "1234":
             st.session_state["autenticado"] = True
             st.rerun()
         else:
             st.error("PIN incorrecto. Acceso denegado.")
-    st.stop() # Detiene la ejecución si no está autenticado
-# -------------------------------
+    st.stop()
 
-# 2. INTERFAZ PRINCIPAL (Solo visible si el PIN es correcto)
-st.title("📊 Sistema de Control de Riesgo")
-st.sidebar.success("✅ Conexión Segura Activa")
+# 4. INTERFAZ DEL ANALIZADOR
+st.title("📊 Analizador Táctico STO/USDT Pro")
+st.write("Sube tu captura de pantalla de Binance para procesar niveles y tendencia.")
 
-archivo = st.file_uploader("Subir captura de Binance (15m / 1h / 1d)", type=['png', 'jpg', 'jpeg'])
+archivo = st.file_uploader("Seleccionar imagen...", type=["jpg", "png", "jpeg"])
 
 if archivo is not None:
-    image = Image.open(archivo)
-    img = np.array(image)
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    height, width = img.shape[:2]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Procesar imagen con OpenCV
+    img = Image.open(archivo)
+    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    gris = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
-    # Detección de bordes y líneas (Lógica de Trading)
-    edges = cv2.Canny(gray, 50, 150)
-    min_line_width = int(width * 0.3) 
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, 100, minLineLength=min_line_width, maxLineGap=10)
+    # Detección de bordes (Canny)
+    bordes = cv2.Canny(gris, 50, 150, apertureSize=3)
     
-    soportes, resistencias = [], []
-    if lines is not None:
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            if abs(y1 - y2) < 3:
-                if y1 > (height / 2):
-                    soportes.append(y1)
-                    cv2.line(img, (0, y1), (width, y1), (255, 0, 0), 4)
-                else:
-                    resistencias.append(y1)
-                    cv2.line(img, (0, y1), (width, y1), (0, 0, 255), 4)
-
-    # Lógica de Tiempo
-    ahora = datetime.now()
-    vencimiento = ahora + timedelta(minutes=60)
-    hora_vence = vencimiento.strftime("%H:%M")
-
-    # Estampado en imagen
-    cv2.rectangle(img, (width-380, 10), (width-10, 90), (0, 0, 0), -1)
-    cv2.putText(img, f"VENCE: {hora_vence}", (width-360, 65), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 255), 3)
-
-    # Panel de Resultados
-    st.divider()
-    if len(resistencias) > len(soportes):
-        st.error(f"🔴 TENDENCIA: BAJISTA (Vence {hora_vence})")
-    else:
-        st.success(f"🟢 TENDENCIA: ALCISTA (Vence {hora_vence})")
-
-    st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), use_container_width=True)
+    # Transformada de Hough para detectar soportes/resistencias
+    lineas = cv2.HoughLinesP(bordes, 1, np.pi/180, 100, minLineLength=100, maxLineGap=10)
     
-    if st.button("Cerrar Sesión"):
-        st.session_state["autenticado"] = False
-        st.rerun()
+    # Determinamos el punto medio para separar soportes y resistencias
+    height, width, _ = img_cv.shape
+    punto_medio = height / 2
+    
+    if lineas is not None:
+        for l in lineas:
+            x1, y1, x2, y2 = l[0]
+            # Dibujamos solo líneas horizontales (posibles soportes/resistencias)
+            if abs(y1 - y2) < 5:
+                # Lógica de color: Resistencias (Arriba, y1 < punto_medio) son Rojas, Soportes (Abajo) son Verdes
+                color = (0, 0, 255) if y1 < punto_medio else (0, 255, 0) # BGR
+                cv2.line(img_cv, (x1, y1), (x2, y2), color, 2)
+
+    # DETECCIÓN DE TENDENCIA (Lógica basada en altura de los últimos puntos)
+    # Analizamos los últimos 50 puntos de bordes para ver si suben o bajan
+    y_coordenadas = np.argwhere(bordes > 0)[:, 0] # Obtenemos coordenadas Y de los bordes
+    if len(y_coordenadas) > 100:
+        primeros_puntos = np.mean(y_coordenadas[:50]) # Promedio de los primeros puntos (izquierda del gráfico)
+        ultimos_puntos = np.mean(y_coordenadas[-50:]) # Promedio de los últimos puntos (derecha)
         
+        # En imagen, Y menor es más arriba. Si los últimos puntos están "más arriba", es alcista.
+        tendencia = "🚀 ALCISTA" if ultimos_puntos < primeros_puntos else "📉 BAJISTA"
+    else:
+        tendencia = "❓ INDETERMINADA"
+
+    # 5. CÁLCULO DE TIEMPO (VENCE)
+    hora_actual = obtener_hora_local()
+    vencimiento = (hora_actual + timedelta(minutes=15)).strftime('%H:%M')
+
+    # 6. MOSTRAR RESULTADOS
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(img_cv, channels="BGR", caption="Análisis Visual de Niveles")
+    
+    with col2:
+        st.success("✅ ANÁLISIS COMPLETADO")
+        st.metric(label="⏱️ PRÓXIMO VENCE (GMT-5)", value=vencimiento)
+        st.metric(label="📊 TENDENCIA DETECTADA", value=tendencia)
+        st.info("Recomendación: Validar con volumen y fuerza de ruptura.")
+
+st.sidebar.write(f"Conectado: {obtener_hora_local().strftime('%d/%m/%Y %H:%M:%S')}")
